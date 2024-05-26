@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 
 MESSAGE_SIZE = 16  # messages can only 16 bytes long
@@ -42,128 +44,129 @@ inv_s_box = (
 
 
 def rotate(matrix: np.ndarray, angle) -> np.ndarray:
-    return np.rot90(matrix, angle)  # -1 is clockwise, 1 is counter clockwise
+    if angle < 0:
+        angle = 4 + angle  # Adjust negative angles for counterclockwise rotation
+    return np.rot90(matrix, angle)
 
 
-def addRoundKey(state: np.ndarray, key: int) -> np.ndarray:
-    # for rowMessage, keyMessage in zip(state, key):
-    #     for messageElement, keyElement in zip(rowMessage, keyMessage):
-    #         np.bitwise_xor(messageElement, keyElement)
-    # return state
+def addRoundKey(state: np.ndarray, key: np.ndarray) -> np.ndarray:
     return np.bitwise_xor(state, key)
 
 
-def subWord(byte):
-    row = (byte & 0xF0) >> 4  # Get the first 4 bits (high-order bits)
-    col = byte & 0x0F  # Get the last 4 bits (low-order bits)
-    return s_box[row * 16 + col]
-
-def gFunction(word, rConRound):
-    # rotate the word
-    word = [word[1], word[2], word[3], word[0]]
-    # sub the word
-    for i in range(4):
-        word[i] = subWord(word[i])
-    # add the rcon
-    rCon = [rConRound, 0, 0, 0]
-    word = np.bitwise_xor(word, rCon)
-def keyExpansion(keyMatrix):
-    Nk = 4
-    Nr = 10
-    Nb = 4
-    Rcon = np.array([0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36])
-    # expanded_key = [key[i:i + 4] for i in range(0, Nk * 4, 4)]
-    expanded_key = [keyMatrix]
-    keyWords = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
-
-    # generate the 4 words that will generate the rest of the keys
+def subByte(state):
+    newState = [[0, 0, 0, 0] for _ in range(4)]  # Initialize a 4x4 matrix
     for i in range(4):
         for j in range(4):
-            keyWords[i][j] = keyMatrix[j][i]
-
-    for i in range(10):
-        
-    return expanded_key
+            newState[i][j] = s_box[state[i][j]]  # Correct indexing of s_box
+    return newState
 
 
 def shiftRows(message):
     row0 = message[0]
     row1 = message[1]
     newRow1 = [row1[1], row1[2], row1[3], row1[0]]
-    # newRow1 = np.ndarray([row1[1], row1[2], row1[3], row1[0]])
     row2 = message[2]
     newRow2 = [row2[2], row2[3], row2[0], row2[1]]
-    # newRow2 = np.ndarray(row2[2], row2[3], row2[0], row2[1])
-
     row3 = message[3]
-    # newRow3 = np.ndarray(row3[3], row3[2], row3[1], row3[0])
-    newRow3 = [row3[3], row3[2], row3[1], row3[0]]
-    newOrder = np.ndarray(shape=(4, 4))
-    newOrder[0] = row0
-    newOrder[1] = newRow1
-    newOrder[2] = newRow2
-    newOrder[3] = newRow3
-    # newOrder = np.ndarray([row0, newRow1, newRow2, newRow3])
+    newRow3 = [row3[3], row3[0], row3[1], row3[2]]
+    newOrder = [row0, newRow1, newRow2, newRow3]
+
     return newOrder
 
+def shiftRowsDec(message):
+    row0 = message[0]
+    row1 = message[1]
+    row2 = message[2]
+    row3 = message[3]
+    newRow1 = [row1[3], row1[0], row1[1], row1[2]]
+    newRow2 = [row2[2], row2[3], row2[0], row2[1]]
+    newRow3 = [row3[1], row3[2], row3[3], row3[0]]
+    newOrder = [row0, newRow1, newRow2, newRow3]
 
-def rotAesEncrypt(message, key) -> np.ndarray:
-    # start by adding the original key
-    keys = keyExpansion(key)
-    message = addRoundKey(message, keys[0])
+    return newOrder
 
-    for i in range(9):
-        # in each round we start with subBytes
-        for row in message:
-            for element in row:
-                element = subWord(element)
-        # shift rows
-        message = shiftRows(message)
-        # rotate the matrix
-        message = rotate(message, -1)
-        message = addRoundKey(message, keys[i + 1])
+def rotAesEncrypt(state, keys) -> np.ndarray:
+    key1 = keys[0]
+    key2 = keys[1]
+    for i in range(2):
+        # we start by subbing the Bytes
+        state = subByte(state)
+        # print(state)
+        # then we shift the rows
+        state = shiftRows(state)
 
-    # after we are done with the rounds we do the last round
-    for row in message:
-        for element in row:
-            element = subWord(element)
+        # then we rotate the matrix
+        state = rotate(state, -1)
 
-    message = shiftRows(message)
-    message = addRoundKey(message, keys[-1])
-    return message
+        # then we add the round key
+        if i == 0:
+            state = addRoundKey(state, key1)
 
+        else:
+            state = addRoundKey(state, key2)
 
-if __name__ == '__main__':
-    with open('Short encryption/message_short.txt', 'rb') as file:
+    return state
+
+def encrypt():
+    with open(r'C:\Users\marik\Desktop\university\2023-2024\Short encryption\message_short.txt', 'rb') as file:
         message = file.read()
-        message_array = bytearray(message)
-        # message_array = np.frombuffer(message, dtype=np.uint8)
-        # message_matrix = np.array(message_array)
-        # message_matrix.reshape((4, 4))
-        message_matrix = [[], [], [], []]
-        for i in range(4):
-            for j in range(4):
-                message_matrix[j].append(hex(message_array[i + j]))
-        # message_matrix = message_matrix.astype(np.uint8)
+        message_bytes = bytearray(message)
+        message_matrix = np.array(message_bytes).reshape((4, 4))
+
     with open('Short encryption/keys_short.txt', 'rb') as file:
         keys = file.read()
         key1 = keys[:16]
         key2 = keys[16:32]
-        keys_array1 = bytearray(key1)
-        keys_matrix1 = [[], [], [], []]
+        key1_bytes = bytearray(key1)
+        key2_bytes = bytearray(key2)
+        keys_matrix1 = np.array(key1_bytes).reshape((4, 4))
+        keys_matrix2 = np.array(key2_bytes).reshape((4, 4))
 
-        keys_array2 = bytearray(key2)
-        keys_matrix2 = [[], [], [], []]
+    encrypted_message = rotAesEncrypt(message_matrix, [keys_matrix1, keys_matrix2])
+    flatEncrypt = [item for sublist in encrypted_message for item in sublist]
+    finalEncrypt = bytes(flatEncrypt)
 
-        for i in range(4):
-            for j in range(4):
-                keys_matrix1[j].append(hex(keys_array1[i + j]))
-                keys_matrix2[j].append(hex(keys_array2[i + j]))
-        # keys_array1 = np.frombuffer(key1, dtype=np.uint8)
-        # keys_array2 = np.frombuffer(key2, dtype=np.uint8)
-        # keys_matrix1 = keys_array1.reshape((4, 4))
-        # keys_matrix2 = keys_array2.reshape((4, 4))
-        # keys_matrix1 = keys_matrix1.astype(np.uint8)
-        # keys_matrix2 = keys_matrix2.astype(np.uint8)
-    encrypted_message = rotAesEncrypt(rotAesEncrypt(message_matrix, keys_matrix1), keys_matrix2)
-    print(encrypted_message)
+
+def rotAesDecrypt(state, keys):
+    key1 = keys[0]
+    key2 = keys[1]
+
+    for i in range(2):
+        if i == 0:
+            state = addRoundKey(state, key1)
+
+        else:
+            state = addRoundKey(state, key2)
+
+        state = rotate(state, 1)
+        state = shiftRowsDec(state)
+
+        state = subByte(state)
+    flatDecrypt = [item for sublist in state for item in sublist]
+
+    return bytes(flatDecrypt)
+
+
+def decrypt():
+    with open(r'C:\Users\marik\Desktop\university\2023-2024\Short encryption\cipher_short.txt', 'rb') as file:
+        message = file.read()
+        message_bytes = bytearray(message)
+        message_matrix = np.array(message_bytes).reshape((4, 4))
+
+    with open('Short encryption/keys_short.txt', 'rb') as file:
+        keys = file.read()
+        key1 = keys[:16]
+        key2 = keys[16:32]
+        key1_bytes = bytearray(key1)
+        key2_bytes = bytearray(key2)
+        keys_matrix1 = np.array(key1_bytes).reshape((4, 4))
+        keys_matrix2 = np.array(key2_bytes).reshape((4, 4))
+        
+        decrypted_message = rotAesDecrypt(message_matrix, [keys_matrix1, keys_matrix2])
+        print(decrypted_message)
+if __name__ == '__main__':
+        encrypt()
+        decrypt()
+
+
+
