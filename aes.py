@@ -1,8 +1,6 @@
-import copy
+import sys
 
 import numpy as np
-
-MESSAGE_SIZE = 16  # messages can only 16 bytes long
 
 s_box = (
     0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
@@ -43,21 +41,31 @@ inv_s_box = (
 )
 
 
-def rotate(matrix: np.ndarray, angle) -> np.ndarray:
+def rotate(matrix, angle):
     if angle < 0:
-        angle = 4 + angle  # Adjust negative angles for counterclockwise rotation
+        angle = 4 + angle
     return np.rot90(matrix, angle)
 
 
-def addRoundKey(state: np.ndarray, key: np.ndarray) -> np.ndarray:
+def addRoundKey(state, key):
     return np.bitwise_xor(state, key)
 
 
 def subByte(state):
-    newState = [[0, 0, 0, 0] for _ in range(4)]  # Initialize a 4x4 matrix
+
+    newState = [[0, 0, 0, 0] for _ in range(4)]
     for i in range(4):
         for j in range(4):
-            newState[i][j] = s_box[state[i][j]]  # Correct indexing of s_box
+            newState[i][j] = s_box[state[i][j]]
+    return newState
+
+
+def subByteDec(state):
+
+    newState = [[0, 0, 0, 0] for _ in range(4)]
+    for i in range(4):
+        for j in range(4):
+            newState[i][j] = inv_s_box[state[i][j]]
     return newState
 
 
@@ -73,6 +81,7 @@ def shiftRows(message):
 
     return newOrder
 
+
 def shiftRowsDec(message):
     row0 = message[0]
     row1 = message[1]
@@ -85,46 +94,20 @@ def shiftRowsDec(message):
 
     return newOrder
 
-def rotAesEncrypt(state, keys) -> np.ndarray:
+
+def rotAesEncrypt(state, keys):
     key1 = keys[0]
     key2 = keys[1]
     for i in range(2):
-        # we start by subbing the Bytes
         state = subByte(state)
-        # print(state)
-        # then we shift the rows
         state = shiftRows(state)
-
-        # then we rotate the matrix
         state = rotate(state, -1)
-
-        # then we add the round key
         if i == 0:
             state = addRoundKey(state, key1)
-
         else:
             state = addRoundKey(state, key2)
 
     return state
-
-def encrypt():
-    with open(r'C:\Users\marik\Desktop\university\2023-2024\Short encryption\message_short.txt', 'rb') as file:
-        message = file.read()
-        message_bytes = bytearray(message)
-        message_matrix = np.array(message_bytes).reshape((4, 4))
-
-    with open('Short encryption/keys_short.txt', 'rb') as file:
-        keys = file.read()
-        key1 = keys[:16]
-        key2 = keys[16:32]
-        key1_bytes = bytearray(key1)
-        key2_bytes = bytearray(key2)
-        keys_matrix1 = np.array(key1_bytes).reshape((4, 4))
-        keys_matrix2 = np.array(key2_bytes).reshape((4, 4))
-
-    encrypted_message = rotAesEncrypt(message_matrix, [keys_matrix1, keys_matrix2])
-    flatEncrypt = [item for sublist in encrypted_message for item in sublist]
-    finalEncrypt = bytes(flatEncrypt)
 
 
 def rotAesDecrypt(state, keys):
@@ -139,21 +122,22 @@ def rotAesDecrypt(state, keys):
             state = addRoundKey(state, key2)
 
         state = rotate(state, 1)
+
         state = shiftRowsDec(state)
 
-        state = subByte(state)
+        state = subByteDec(state)
+
     flatDecrypt = [item for sublist in state for item in sublist]
+    res = bytes(flatDecrypt)
+    return res
 
-    return bytes(flatDecrypt)
 
-
-def decrypt():
-    with open(r'C:\Users\marik\Desktop\university\2023-2024\Short encryption\cipher_short.txt', 'rb') as file:
+def encrypt(message, keys, output):
+    with open(message, 'rb') as file:
         message = file.read()
         message_bytes = bytearray(message)
-        message_matrix = np.array(message_bytes).reshape((4, 4))
 
-    with open('Short encryption/keys_short.txt', 'rb') as file:
+    with open(keys, 'rb') as file:
         keys = file.read()
         key1 = keys[:16]
         key2 = keys[16:32]
@@ -161,12 +145,50 @@ def decrypt():
         key2_bytes = bytearray(key2)
         keys_matrix1 = np.array(key1_bytes).reshape((4, 4))
         keys_matrix2 = np.array(key2_bytes).reshape((4, 4))
-        
-        decrypted_message = rotAesDecrypt(message_matrix, [keys_matrix1, keys_matrix2])
-        print(decrypted_message)
+
+    numOfBlocks = len(message_bytes) // 16
+    res = b''
+    for i in range(numOfBlocks):
+        message_matrix = np.array(message_bytes[i * 16:(i + 1) * 16]).reshape((4, 4))
+        encrypted_message = rotAesEncrypt(message_matrix, [keys_matrix1, keys_matrix2])
+        flatEncrypt = [item for sublist in encrypted_message for item in sublist]
+        finalEncrypt = bytes(flatEncrypt)
+        res += finalEncrypt
+    with open(output, 'wb') as file:
+        file.write(res)
+
+
+def decrypt(message, keys, output):
+    with open(message, 'rb') as file:
+        message = file.read()
+        message_bytes = bytearray(message)
+
+    with open(keys, 'rb') as file:
+        keys = file.read()
+        key1 = keys[:16]
+        key2 = keys[16:32]
+        key1_bytes = bytearray(key1)
+        key2_bytes = bytearray(key2)
+
+        keys_matrix1 = np.array(key1_bytes).reshape((4, 4))
+        keys_matrix2 = np.array(key2_bytes).reshape((4, 4))
+
+        numOfBlocks = len(message_bytes) // 16
+        res = b''
+        for i in range(numOfBlocks):
+            message_matrix = np.array(message_bytes[i * 16:(i + 1) * 16]).reshape((4, 4))
+            decrypted_message = rotAesDecrypt(message_matrix, [keys_matrix2, keys_matrix1])
+            res += decrypted_message
+        with open(output, 'wb') as file:
+            file.write(res)
+
+
 if __name__ == '__main__':
-        encrypt()
-        decrypt()
-
-
-
+    if len(sys.argv) != 5 or (sys.argv[1] != '-d' and sys.argv[1] != '-e'):
+        print("Usage: python aes.py -d/-e message.txt keys.txt output.txt")
+        sys.exit(1)
+    _, mode, message_file, keys_file, output_file = sys.argv
+    if mode == '-e':
+        encrypt(message_file, keys_file, output_file)
+    else:
+        decrypt(message_file, keys_file, output_file)
